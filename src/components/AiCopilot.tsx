@@ -53,8 +53,9 @@ const STARTER_PROMPTS = [
 ];
 
 function formatGroundedMarkdown(md: string) {
-  // Render inline badges & basic markdown cleanly without heavy external deps
-  const lines = md.split("\n");
+  // Normalize literal \n if a model ever double-escapes newlines
+  const normalized = md.replace(/\\n/g, "\n");
+  const lines = normalized.split("\n");
   return lines.map((line, i) => {
     if (!line.trim()) return <div key={i} className="h-2" />;
 

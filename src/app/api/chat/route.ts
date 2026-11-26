@@ -74,7 +74,7 @@ async function callGemini(
       contents,
       generationConfig: {
         temperature: 0.15,
-        maxOutputTokens: 1200,
+        maxOutputTokens: 2800,
         responseMimeType: "application/json",
       },
     }),
@@ -211,18 +211,34 @@ export async function POST(req: NextRequest) {
       proposedActions?: CopilotActionProposal[];
     };
 
+    const cleaned = rawJsonText
+      .replace(/^```json\s*/i, "")
+      .replace(/```\s*$/i, "")
+      .trim();
+
     try {
-      const cleaned = rawJsonText
-        .replace(/^```json\s*/i, "")
-        .replace(/```\s*$/i, "")
-        .trim();
       parsed = JSON.parse(cleaned);
     } catch {
-      parsed = {
-        answerMarkdown: rawJsonText,
-        confidenceNote: "Grounded in live workspace state.",
-        proposedActions: [],
-      };
+      // Recover answerMarkdown if output was truncated mid-JSON
+      const match = cleaned.match(/"answerMarkdown"\s*:\s*"([\s\S]*?)(?:"\s*,\s*"(?:confidenceNote|proposedActions)"|"$|$)/);
+      if (match && match[1]) {
+        const unescaped = match[1]
+          .replace(/\\n/g, "\n")
+          .replace(/\\"/g, '"')
+          .replace(/\\t/g, "\t")
+          .replace(/\\\\/g, "\\");
+        parsed = {
+          answerMarkdown: unescaped,
+          confidenceNote: "Grounded in live workspace state (recovered from partial JSON).",
+          proposedActions: [],
+        };
+      } else {
+        parsed = {
+          answerMarkdown: cleaned,
+          confidenceNote: "Grounded in live workspace state.",
+          proposedActions: [],
+        };
+      }
     }
 
     return NextResponse.json(
