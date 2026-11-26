@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceState } from "@/lib/mongodb";
 import { buildCopilotDigest } from "@/lib/analytics";
+import { enforceChatRateLimit } from "@/lib/rateLimit";
 import { CopilotActionProposal } from "@/types/sponsor";
 
 export const dynamic = "force-dynamic";
+
+const MAX_USER_PROMPT_CHARS = 1200;
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -71,7 +74,7 @@ async function callGemini(
       contents,
       generationConfig: {
         temperature: 0.15,
-        maxOutputTokens: 1400,
+        maxOutputTokens: 1200,
         responseMimeType: "application/json",
       },
     }),
@@ -86,6 +89,34 @@ async function callGemini(
 
 export async function POST(req: NextRequest) {
   try {
+    // 1. Enforce server-side per-IP + global daily wallet rate limits BEFORE spending 1 token
+    const clientIp =
+      req.headers.get("x-forwarded-for") ||
+      req.headers.get("x-real-ip") ||
+      "local-client";
+
+    const rl = await enforceChatRateLimit(clientIp);
+    const rlHeaders = {
+      "X-RateLimit-Remaining-Minute": String(rl.remainingMinute),
+      "X-RateLimit-Remaining-Hour": String(rl.remainingHour),
+      "X-RateLimit-Remaining-Day": String(rl.remainingGlobalDay),
+      ...(rl.retryAfterSec ? { "Retry-After": String(rl.retryAfterSec) } : {}),
+    };
+
+    if (!rl.allowed) {
+      return NextResponse.json(
+        {
+          answerMarkdown: `**[Rate Limit Active]** ${rl.reason}`,
+          confidenceNote:
+            "Blocked prior to LLM invocation (0 tokens spent) to protect API quota.",
+          proposedActions: [],
+          rateLimited: true,
+          remainingHour: rl.remainingHour,
+        },
+        { status: 429, headers: rlHeaders }
+      );
+    }
+
     const body = await req.json();
     const {
       messages = [] as ChatMessage[],
@@ -93,8 +124,22 @@ export async function POST(req: NextRequest) {
       activeView = "2026_live",
     } = body;
 
-    const latestUserMsg =
+    const rawUserMsg =
       [...messages].reverse().find((m: ChatMessage) => m.role === "user")?.content || "";
+
+    if (!rawUserMsg.trim()) {
+      return NextResponse.json(
+        {
+          answerMarkdown: "Please enter a question about CampusFest sponsorship performance.",
+          confidenceNote: "Empty query skipped (0 tokens spent).",
+          proposedActions: [],
+        },
+        { status: 400, headers: rlHeaders }
+      );
+    }
+
+    // Cap prompt length to prevent token-stuffing abuse
+    const latestUserMsg = rawUserMsg.slice(0, MAX_USER_PROMPT_CHARS);
 
     const { state } = await getWorkspaceState();
     const digest = buildCopilotDigest(state, snapshotDate2025, latestUserMsg);
@@ -108,31 +153,34 @@ export async function POST(req: NextRequest) {
           confidenceNote: "No LLM call executed.",
           proposedActions: [],
         },
-        { status: 200 }
+        { status: 200, headers: rlHeaders }
       );
     }
 
-    // Keep last 6 conversation turns for follow-up continuity while staying ultra-frugal on tokens!
+    // Keep last 6 turns (capped in length) for follow-up continuity while staying ultra-frugal on tokens
     const recentHistory: ChatMessage[] = messages.slice(-6);
     const contents = recentHistory.map((m, idx) => {
       const isLatest = idx === recentHistory.length - 1 && m.role === "user";
+      const safeContent = String(m.content || "").slice(0, MAX_USER_PROMPT_CHARS);
       const text = isLatest
         ? `ACTIVE_UI_TAB: ${activeView} | SELECTED_2025_SNAPSHOT_DATE: ${snapshotDate2025}\nLIVE_APPLICATION_DATA:\n${JSON.stringify(
             digest
-          )}\n\nUSER_QUESTION:\n${m.content}`
-        : m.content;
+          )}\n\nUSER_QUESTION:\n${latestUserMsg}`
+        : safeContent;
       return {
         role: m.role === "assistant" ? "model" : "user",
         parts: [{ text }],
       };
     });
 
-    // Try fast & frugal Flash models with automatic fallback
-    const candidateModels = [
-      process.env.GEMINI_MODEL || "gemini-2.5-flash",
-      "gemini-2.5-flash-lite",
-      "gemini-flash-lite-latest",
-    ];
+    // Primary model: gemini-3.8-flash (with automatic fallback to 3.8-flash-lite / 2.5-flash-lite)
+    const candidateModels = Array.from(
+      new Set([
+        process.env.GEMINI_MODEL || "gemini-3.8-flash",
+        "gemini-3.8-flash",
+        "gemini-2.5-flash-lite",
+      ])
+    );
 
     let rawJsonText = "";
     let usedModel = candidateModels[0];
@@ -177,15 +225,19 @@ export async function POST(req: NextRequest) {
       };
     }
 
-    return NextResponse.json({
-      answerMarkdown: parsed.answerMarkdown || "No analysis generated.",
-      confidenceNote:
-        parsed.confidenceNote || "Grounded in current MongoDB & 2025 source records.",
-      proposedActions: Array.isArray(parsed.proposedActions)
-        ? parsed.proposedActions
-        : [],
-      modelUsed: usedModel,
-    });
+    return NextResponse.json(
+      {
+        answerMarkdown: parsed.answerMarkdown || "No analysis generated.",
+        confidenceNote:
+          parsed.confidenceNote || "Grounded in current MongoDB & 2025 source records.",
+        proposedActions: Array.isArray(parsed.proposedActions)
+          ? parsed.proposedActions
+          : [],
+        modelUsed: usedModel,
+        remainingHour: rl.remainingHour,
+      },
+      { status: 200, headers: rlHeaders }
+    );
   } catch (err) {
     console.error("Chat API error:", err);
     return NextResponse.json(

@@ -124,8 +124,8 @@ $$\text{CASH-RICE Score} = \text{Normalized}_{100}\left(\frac{\text{Cash Impact 
 
 ### Tech Stack
 - **Frontend & API:** Next.js 16.4.6 (App Router, TypeScript, Server Route Handlers), Tailwind CSS, Recharts, Lucide Icons
-- **Database:** MongoDB Atlas (`risa_sponsor_boss.workspaces`) for persistent real-time edits across sessions (with automatic in-memory fallback if run offline without `MONGODB_URI`)
-- **Embedded AI Copilot:** Google Gemini API (`gemini-2.5-flash` / `gemini-2.5-flash-lite` via REST JSON-schema mode) grounded in deterministic server-computed analytics (`src/lib/analytics.ts`)
+- **Database:** MongoDB Atlas (`risa_sponsor_boss.workspaces` + TTL-indexed `chat_rate_limits`) for persistent real-time edits and serverless rate limiting across instances
+- **Embedded AI Copilot:** Google Gemini API (`gemini-3.8-flash` via REST JSON-schema mode, with automatic fallback) grounded in deterministic server-computed analytics (`src/lib/analytics.ts`) and protected by a 4-layer server-side rate limiter (`3s` burst cooldown, `6 req/min` per IP, `25 req/hr` per IP, `120 req/day` global wallet cap, and `1,200-char` prompt cap)
 
 ### Complete Demonstrated Workflow (Insight $\rightarrow$ Diagnosis $\rightarrow$ Confirmed Action $\rightarrow$ Updated Analytics)
 1. **Measure & Diagnose (`1. Cash Command` Tab):** At `D-35` (Mar 8, 2026), **₹47.30L** is cleared in bank, but the **Live Bottleneck Radar** flags **₹13.50L in Critical Post-Festival ERP Risk** (`Razorpay ₹7.50L` & `Postman ₹6.00L` are signed/invoiced on 45-day Direct ERP with expected payout Apr 16–18, *after* the Apr 12 festival!) and **2 Stalled Whale Proposals** (`Sarvam AI` 13d, `Groww` 12d > 10-day threshold).
@@ -160,7 +160,8 @@ Open `http://localhost:3000`.
 2. In **Project Settings $\rightarrow$ Environment Variables**, add:
    - `GEMINI_API_KEY` = `<your_google_ai_studio_key>`
    - `MONGODB_URI` = `<your_mongodb_atlas_connection_string>`
-   - `GEMINI_MODEL` = `gemini-2.5-flash` *(optional; automatically falls back to `gemini-2.5-flash-lite` on quota pressure)*
+   - `GEMINI_MODEL` = `gemini-3.8-flash` *(optional; defaults to `gemini-3.8-flash`)*
+   - Optional rate-limit overrides: `CHAT_RPM_IP_LIMIT=6`, `CHAT_HOURLY_IP_LIMIT=25`, `CHAT_DAILY_GLOBAL_LIMIT=120`
 3. Click **Deploy** (zero custom build flags needed).
 
 ---
@@ -170,7 +171,7 @@ Open `http://localhost:3000`.
 ### Tools & Libraries Disclosure
 - **Framework & UI:** Open-source `next@16.4.6`, `react@18.3.1`, `tailwindcss@3.4`, `recharts@2.15`, `lucide-react` (built from scratch for this assignment; no pre-built dashboard template reused).
 - **Database:** MongoDB Atlas Free Tier (`M0` cluster) via official `mongodb` Node driver.
-- **LLM / AI Assistant:** Google AI Studio Gemini API (`gemini-2.5-flash` / `gemini-2.5-flash-lite`) for the embedded Copilot, plus AI-assisted pair programming (Antigravity / Gemini) for code scaffolding, XML-to-JSON extraction of `Sponsor Dataset.xlsx`, and HTML-to-PDF rendering via headless Chromium. All dataset queries, deduplication rules, funnel math, and threshold logic were deterministically coded and verified against raw Excel sheets.
+- **LLM / AI Assistant:** Google AI Studio Gemini API (`gemini-3.8-flash`) for the embedded Copilot, plus AI-assisted pair programming (Antigravity / Gemini) for code scaffolding, XML-to-JSON extraction of `Sponsor Dataset.xlsx`, and HTML-to-PDF rendering via headless Chromium. All dataset queries, deduplication rules, funnel math, and threshold logic were deterministically coded and verified against raw Excel sheets.
 
 ### Known Limitations
 1. **Simulated 2026 Execution Pipeline:** While the 2025 audit mode uses the exact unmodified source records from `Sponsor Dataset.xlsx`, the 2026 Bengaluru deals (`D26-01` to `D26-26`) are realistic simulated records illustrating a Week-7 (`D-35`) sprint. Real brand names (*Cred, Razorpay, Blinkit, Zepto, boAt*) are used strictly as illustrative Tier-1 Bengaluru personas, not claims of real commercial agreements.

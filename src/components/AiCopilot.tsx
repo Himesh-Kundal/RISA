@@ -185,6 +185,7 @@ export default function AiCopilot({
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [executingId, setExecutingId] = useState<string | null>(null);
+  const [remainingHour, setRemainingHour] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -219,6 +220,9 @@ export default function AiCopilot({
         }),
       });
       const data = await res.json();
+      if (typeof data.remainingHour === "number") {
+        setRemainingHour(data.remainingHour);
+      }
       setTurns((prev) => [
         ...prev,
         {
@@ -281,7 +285,8 @@ export default function AiCopilot({
               </span>
             </div>
             <p className="text-[11px] text-slate-400">
-              Live MongoDB + 2025 Snapshot ({snapshotDate2025})
+              Gemini 3.8 Flash · Snapshot ({snapshotDate2025})
+              {remainingHour !== null ? ` · ${remainingHour}/hr left` : ""}
             </p>
           </div>
         </div>
@@ -410,6 +415,7 @@ export default function AiCopilot({
         <div className="flex items-center gap-2">
           <input
             type="text"
+            maxLength={1200}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask about bottlenecks, 2025 data, or tell Copilot to act..."
