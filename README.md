@@ -1,6 +1,7 @@
 # SPONSOR-BOSS: Pre-Festival Sponsorship Cash Command Center & Grounded AI Copilot
 
 **Author:** Himesh Kundal  
+**Live Working Product:** [`https://risa-ochre.vercel.app/`](https://risa-ochre.vercel.app/)  
 **Assignment:** RISA Labs — Growth APM Assignment (**Challenge B: Maximize Sponsorship Cash Collected Before the Festival**)  
 **Chosen City:** Bengaluru (Tier-1 Flagship College Festival · 25,000 Verified Student Footfall · 12-Week Pre-Festival Sprint)  
 **Deliverables Included in Repository:**
